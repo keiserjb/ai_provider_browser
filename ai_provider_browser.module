@@ -424,21 +424,32 @@ function ai_provider_browser_submit_page() {
       backdrop_json_output(['status' => 'error', 'message' => 'Invalid uuid']);
       backdrop_exit();
     }
-    $status = !empty($data['status']) ? $data['status'] : 'completed';
+    // Only accept results for a request pending in this caller's own session.
+    if (empty($_SESSION['ai_provider_browser_requests'][$uuid])) {
+      backdrop_json_output(['status' => 'error', 'message' => 'Unknown request']);
+      backdrop_exit();
+    }
+    $status = (isset($data['status']) && $data['status'] === 'failed') ? 'failed' : 'completed';
+    $result = (isset($data['result']) && is_scalar($data['result']))
+      ? mb_substr((string) $data['result'], 0, 100000)
+      : NULL;
+    $error = (isset($data['error']) && is_scalar($data['error']))
+      ? mb_substr((string) $data['error'], 0, 1000)
+      : NULL;
     $result_data = [
       'status' => $status,
-      'result' => array_key_exists('result', $data) ? $data['result'] : NULL,
-      'error' => !empty($data['error']) ? $data['error'] : NULL,
+      'result' => $result,
+      'error' => $error,
     ];
     $_SESSION['ai_provider_browser_results'][$uuid] = $result_data;
 
     // Also update cache for more reliable concurrent signaling.
     cache_set('ai_provider_browser_result:' . $uuid, $result_data, 'cache', REQUEST_TIME + 600);
 
-    if ($status !== 'completed' && !empty($data['error'])) {
+    if ($status !== 'completed' && $error !== NULL && $error !== '') {
       watchdog('ai_provider_browser', 'Browser client error for request @uuid: @error', [
         '@uuid' => $uuid,
-        '@error' => $data['error'],
+        '@error' => $error,
       ], WATCHDOG_WARNING);
     }
     else {
